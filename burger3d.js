@@ -33,6 +33,7 @@ let confetti = [];
 const state = {
     playing: false,
     busy: false,
+    sliding: false,
     score: 0,
     lives: 3,
     orders: 0,
@@ -864,6 +865,7 @@ export function start() {
     state.lives = 3;
     state.orders = 0;
     state.busy = false;
+    state.sliding = false;
     state.playing = true;
     updateStats();
     clearStage();
@@ -910,14 +912,16 @@ function completeOrder() {
         burstConfetti();
     });
     later(1700, () => {
+        state.sliding = true;
         const x0 = stage.position.x;
         tween(0.55, (p) => { stage.position.x = x0 + 12 * easeInOut(p); }, () => {
             clearStage();
             confetti.forEach((c) => c.scale.setScalar(0.001));
             newOrder();
+            state.busy = false;
             tween(0.55, (p) => { stage.position.x = -12 * (1 - easeInOut(p)); }, () => {
                 stage.position.x = 0;
-                state.busy = false;
+                state.sliding = false;
             });
         });
     });
@@ -961,7 +965,7 @@ function frame(now) {
     }
 
     // Shake on mistakes (only when the stage isn't mid-slide)
-    if (state.shake > 0 && !state.busy) {
+    if (state.shake > 0 && !state.busy && !state.sliding) {
         state.shake = Math.max(0, state.shake - dt);
         stage.position.x = Math.sin(state.shake * 60) * state.shake * 0.5;
     } else if (state.shake > 0) {
