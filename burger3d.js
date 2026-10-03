@@ -49,6 +49,7 @@ let rafId = null;
 let lastTime = 0;
 let tweens = [];
 let timers = [];
+const gameTimer = new window.GameTimer('g3-time-left', () => gameOver("Time's up!"));
 
 // ---------------------------------------------------------------- procedural textures
 function canvasTexture(size, draw, { repeat, srgb = true } = {}) {
@@ -854,6 +855,11 @@ function newOrder() {
 
 export function start() {
     if (!inited) return;
+    timers = [];
+    tweens = [];
+    state.shake = 0;
+    clearTimeout(toastTimer);
+    $('g3-toast').className = 'g3-toast';
     state.score = 0;
     state.lives = 3;
     state.orders = 0;
@@ -865,10 +871,11 @@ export function start() {
     controls.autoRotate = false;
     $('g3-start').classList.add('hidden');
     newOrder();
+    gameTimer.start(active);
 }
 
 function press(key) {
-    if (!active || !state.playing || state.busy) return;
+    if (!active || !state.playing || !gameTimer.tick() || state.busy) return;
     if (!INGREDIENTS[key]) return;
 
     const idx = state.placed.length;
@@ -916,10 +923,15 @@ function completeOrder() {
     });
 }
 
-function gameOver() {
+function gameOver(title = 'Game Over!') {
     state.playing = false;
+    state.busy = true;
+    gameTimer.stop();
+    timers = [];
+    tweens = [];
+    updateStats();
     later(900, () => {
-        $('g3-start-title').textContent = 'Game Over!';
+        $('g3-start-title').textContent = title;
         $('g3-start-text').innerHTML = `Final Score: <b>${state.score}</b><br>Orders Completed: <b>${state.orders}</b>`;
         $('g3-start-btn').textContent = 'Play Again';
         $('g3-start').classList.remove('hidden');
@@ -975,6 +987,8 @@ function frame(now) {
 
 export function setActive(on) {
     active = on;
+    if (on) gameTimer.resume();
+    else gameTimer.pause();
     if (!inited) return;
     if (on) {
         resize();

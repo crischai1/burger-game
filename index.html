@@ -88,6 +88,12 @@
             color: #DA291C;
         }
 
+        .stat-value.time-low {
+            color: #721c24;
+            background: #f8d7da;
+            border-radius: 6px;
+        }
+
         .hearts {
             color: #DA291C;
             font-size: 28px;
@@ -654,7 +660,7 @@
             pointer-events: none;
         }
 
-        .g3-order .order-item {
+        :is(.g3-order, .classic-order) .order-item {
             display: flex;
             align-items: center;
             gap: 6px;
@@ -662,7 +668,7 @@
             transition: background 0.2s, opacity 0.2s, transform 0.2s;
         }
 
-        .g3-order .order-item .dot {
+        :is(.g3-order, .classic-order) .order-item .dot {
             width: 14px;
             height: 14px;
             border-radius: 50%;
@@ -670,30 +676,30 @@
             border: 2px solid rgba(0,0,0,0.25);
         }
 
-        .g3-order .order-item .step {
+        :is(.g3-order, .classic-order) .order-item .step {
             margin-left: auto;
             font-size: 12px;
             color: #999;
         }
 
-        .g3-order .order-item.done {
+        :is(.g3-order, .classic-order) .order-item.done {
             opacity: 0.45;
             background: #e8f6ec;
             border-color: #27ae60;
         }
 
-        .g3-order .order-item.done .step {
+        :is(.g3-order, .classic-order) .order-item.done .step {
             font-size: 0;
         }
 
-        .g3-order .order-item.done .step::after {
+        :is(.g3-order, .classic-order) .order-item.done .step::after {
             font-size: 13px;
             content: '✓';
             color: #27ae60;
             font-weight: bold;
         }
 
-        .g3-order .order-item.next {
+        :is(.g3-order, .classic-order) .order-item.next {
             background: #FFC72C;
             transform: scale(1.04);
             font-weight: bold;
@@ -750,13 +756,17 @@
                 <div class="stat-label">Orders Completed</div>
                 <div class="stat-value" id="orders">0</div>
             </div>
+            <div class="stat">
+                <div class="stat-label">Time Left</div>
+                <div class="stat-value" id="time-left" role="timer" aria-label="Time left in this game">—</div>
+            </div>
         </div>
 
         <div id="message" class="message"></div>
 
         <div id="game-area" class="hidden">
             <div class="game-layout">
-                <div class="order-section">
+                <div class="order-section classic-order">
                     <div class="order-title">📋 Current Order:</div>
                     <div class="order-items" id="current-order"></div>
                 </div>
@@ -799,7 +809,9 @@
                     📈 Orders get longer the more you complete<br>
                     ⌨️ Use your keyboard to add ingredients<br>
                     ✅ Auto-submits when order is complete<br>
-                    ❌ Wrong orders will cost you lives!
+                    ⏱️ Complete as many orders as you can in 60 seconds<br>
+                    ❌ Each wrong ingredient costs a life!<br>
+                    ↩️ Backspace clears your burger — the clock keeps ticking
                 </p>
             </div>
             <div style="background: #fff9e6; padding: 30px; border-radius: 10px; margin-bottom: 20px; text-align: center;">
@@ -831,6 +843,10 @@
                     <div class="stat-label">Orders Completed</div>
                     <div class="stat-value" id="g3-orders">0</div>
                 </div>
+                <div class="stat">
+                    <div class="stat-label">Time Left</div>
+                    <div class="stat-value" id="g3-time-left" role="timer" aria-label="Time left in this game">—</div>
+                </div>
             </div>
 
             <div class="g3-layout">
@@ -840,7 +856,7 @@
                     <div class="g3-hint" id="g3-hint">Drag to rotate</div>
                     <div class="g3-overlay" id="g3-start">
                         <h2 id="g3-start-title">3D Burger Builder</h2>
-                        <p id="g3-start-text">Build each order in 3D, one ingredient at a time.<br>A wrong ingredient costs a life. You have 3.</p>
+                        <p id="g3-start-text">Build each order in 3D, one ingredient at a time.<br>A wrong ingredient costs a life. You have 3.<br>Complete as many orders as you can in 60 seconds.</p>
                         <button class="btn btn-start" id="g3-start-btn" onclick="G3.start()" disabled>Loading 3D…</button>
                     </div>
                 </div>
@@ -857,6 +873,7 @@
         </div>
     </div>
 
+    <script src="./game-timer.js"></script>
     <script>
         const ingredientNames = {
             'b': 'bun',
@@ -925,7 +942,27 @@
         let currentOrder = [];
         let currentBurger = [];
 
+        let gameRunning = false;
+        let orderPending = false;
+        let orderTransitionId = null;
+        const gameTimer = new GameTimer('time-left', () => {
+            showMessage("Time's up!", 'error');
+            gameOver();
+        });
+
+        function mistake(key) {
+            lives--;
+            updateStats();
+            const need = ingredientLabels[ingredientNames[currentOrder[currentBurger.length]]];
+            showMessage(`Wrong! ${ingredientLabels[ingredientNames[key]]} ≠ ${need} 💔`, 'error');
+            if (lives <= 0) gameOver();
+        }
+
         function startGame() {
+            gameTimer.stop();
+            clearTimeout(orderTransitionId);
+            gameRunning = true;
+            orderPending = false;
             score = 0;
             lives = 3;
             ordersCompleted = 0;
@@ -935,6 +972,7 @@
             document.getElementById('game-over-screen').classList.remove('show');
             document.getElementById('game-area').classList.remove('hidden');
             generateNewOrder();
+            gameTimer.start(activeTab === 'classic');
             hideMessage();
         }
 
@@ -943,6 +981,7 @@
         }
 
         function generateNewOrder() {
+            orderPending = false;
             currentOrder = makeOrder(ordersCompleted);
             fitStack(currentOrder);
             displayOrder();
@@ -964,25 +1003,34 @@
             currentOrder.forEach(ingredient => {
                 const item = document.createElement('div');
                 item.className = 'order-item';
-                item.textContent = ingredientLabels[ingredientNames[ingredient]];
+                item.innerHTML = `${ingredientLabels[ingredientNames[ingredient]]}<span class="step">${ingredient.toUpperCase()}</span>`;
                 orderElement.appendChild(item);
+            });
+            updateOrderProgress();
+        }
+
+        function updateOrderProgress() {
+            Array.from(document.getElementById('current-order').children).forEach((row, i) => {
+                row.classList.toggle('done', i < currentBurger.length);
+                row.classList.toggle('next', i === currentBurger.length);
             });
         }
 
         function addIngredient(key) {
+            if (!gameRunning || orderPending || activeTab !== 'classic') return;
+            if (!gameTimer.tick()) return;
             if (ingredientNames[key]) {
+                if (key !== currentOrder[currentBurger.length]) return mistake(key);
+                hideMessage();
                 currentBurger.push(key);
+                updateOrderProgress();
                 updateBurgerDisplay();
                 checkAutoSubmit();
             }
         }
 
         function checkAutoSubmit() {
-            if (currentBurger.length === currentOrder.length) {
-                if (arraysEqual(currentBurger, currentOrder)) {
-                    setTimeout(() => submitBurger(), 300);
-                }
-            }
+            if (currentBurger.length === currentOrder.length) submitBurger();
         }
 
         let ingredientElements = [];
@@ -1002,6 +1050,7 @@
                 
                 // Wait for element to render so we can get its height
                 requestAnimationFrame(() => {
+                    if (!item.isConnected) return;
                     ingredientElements.push({
                         element: item,
                         y: -50, // Start above visible area
@@ -1094,6 +1143,7 @@
         }
 
         function clearBurger() {
+            if (orderPending) return;
             currentBurger = [];
             if (animationFrameId) {
                 cancelAnimationFrame(animationFrameId);
@@ -1101,34 +1151,28 @@
             }
             ingredientElements = [];
             document.getElementById('burger-stack').innerHTML = '';
+            updateOrderProgress();
         }
 
         function submitBurger() {
+            if (!gameRunning || orderPending || !gameTimer.tick()) return;
             if (currentBurger.length === 0) {
                 showMessage('Add some ingredients first!', 'error');
                 return;
             }
 
             if (arraysEqual(currentBurger, currentOrder)) {
+                orderPending = true;
                 score += 100;
                 ordersCompleted++;
-                setTimeout(() => {
+                orderTransitionId = setTimeout(() => {
                     generateNewOrder();
                     hideMessage();
-                }, 500);
+                }, 800);
+                updateStats();
             } else {
-                lives--;
-                showMessage('Wrong order! Lost a life! 💔', 'error');
-                if (lives <= 0) {
-                    gameOver();
-                } else {
-                    setTimeout(() => {
-                        clearBurger();
-                        hideMessage();
-                    }, 1500);
-                }
+                mistake(currentBurger[currentBurger.length - 1]);
             }
-            updateStats();
         }
 
         function arraysEqual(arr1, arr2) {
@@ -1158,6 +1202,9 @@
         }
 
         function gameOver() {
+            gameRunning = false;
+            gameTimer.stop();
+            clearTimeout(orderTransitionId);
             document.getElementById('game-area').classList.add('hidden');
             document.getElementById('final-score').textContent = score;
             document.getElementById('final-orders').textContent = ordersCompleted;
@@ -1169,7 +1216,9 @@
         const G3 = window.G3 = { module: null, loading: null, start() {} };
 
         function showTab(name) {
+            if (activeTab === 'classic' && name !== 'classic') gameTimer.pause();
             activeTab = name;
+            if (name === 'classic') gameTimer.resume();
             ['classic', '3d'].forEach(t => {
                 document.getElementById('tab-' + t).classList.toggle('hidden', t !== name);
                 document.getElementById('tab-btn-' + t).classList.toggle('active', t === name);
@@ -1197,7 +1246,7 @@
 
         // Keyboard controls
         document.addEventListener('keydown', (e) => {
-            if (activeTab !== 'classic') return;
+            if (activeTab !== 'classic' || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
             if (document.getElementById('game-area').classList.contains('hidden')) return;
             
             const key = e.key.toLowerCase();
